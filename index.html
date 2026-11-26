@@ -1910,64 +1910,32 @@ const Snd=(function(){let ac=null,on=true,master=null;
    click(){tone(520,.04,'sine',.08);},bad(){tone(150,.25,'sawtooth',.1,0,80);}};})();
 
 
-/* ---------- música ambiental generativa (una por edición) ---------- */
+/* ---------- música de fondo: pistas CC0 reales (OpenGameArt), una lista por edición ---------- */
 const Music=(function(){
-  let a=null,cur=null,on=true,silent=null,ready=false;
+  let on=true,gestured=false,au=null,theme=null,idx=0,want=null,fadeT=null,fails=0;
   try{on=window.localStorage.getItem('bm-music')!=='off';}catch(e){}
-  const hz=m=>440*Math.pow(2,(m-69)/12),rnd=(x,y)=>x+Math.random()*(y-x),pick=arr=>arr[Math.floor(Math.random()*arr.length)];
-  const TH={
-   metro:{bpm:82,bass:[38,43,36,45],ch:[[53,57,60,64],[53,55,59,64],[52,55,59,62],[52,55,60,64]],mel:[72,74,76,79,81,84],type:'rhodes',hat:true},
-   espacio:{bpm:58,bass:[33,29,36,31],ch:[[45,52,60,64],[41,48,57,60],[48,55,59,64],[43,50,59,62]],mel:[81,84,88,91,93,96],type:'bell',echo:true},
-   oceano:{bpm:96,bass:[36,33,29,31],ch:[[48,55,60,64],[45,52,57,60],[41,48,57,60],[43,50,55,59]],mel:[67,69,72,74,76,79,81],type:'steel',waves:true},
-   fantasia:{bpm:70,bass:[38,34,41,36],ch:[[50,57,62,65],[46,53,58,62],[53,57,60,65],[48,55,60,64]],mel:[74,77,79,81,84,86],type:'harp',arp:true}};
-  function silentWav(){const n=800,b=new Uint8Array(44+n),dv=new DataView(b.buffer),w=(o,s)=>{for(let i=0;i<s.length;i++)b[o+i]=s.charCodeAt(i);};
-    w(0,'RIFF');dv.setUint32(4,36+n,true);w(8,'WAVE');w(12,'fmt ');dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);dv.setUint32(24,8000,true);dv.setUint32(28,8000,true);dv.setUint16(32,1,true);dv.setUint16(34,8,true);w(36,'data');dv.setUint32(40,n,true);b.fill(128,44);
-    return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));}
-  // desbloqueo para iPhone/Safari: sesión de audio "playback" + <audio> silencioso en bucle + resume en cada gesto
-  function unlock(){
+  const VOL=.3;
+  const PL={metro:['lofi-tea','lofi-chill-loop'],espacio:['contemplation','lofi-lobby'],oceano:['cozy-acoustic','ambient-piano'],fantasia:['inspiring-orchestral','ambient-piano']};
+  function el(){if(au)return au;au=new Audio();au.preload='auto';au.volume=0;au.setAttribute('playsinline','');
+    au.addEventListener('ended',()=>{idx++;load(true);});
+    au.addEventListener('error',()=>{if(++fails<4){idx++;load(true);}});return au;}
+  function fade(to,ms){clearInterval(fadeT);const a=el(),from=a.volume,t0=performance.now();
+    fadeT=setInterval(()=>{const k=Math.min(1,(performance.now()-t0)/ms);try{a.volume=Math.max(0,Math.min(1,from+(to-from)*k));}catch(e){}if(k>=1){clearInterval(fadeT);if(to===0&&!on)a.pause();}},50);}
+  function load(auto){const a=el(),list=PL[theme]||PL.metro;a.src='music/'+list[idx%list.length]+'.mp3';a.volume=0;
+    const p=a.play();if(p&&p.then)p.then(()=>{fails=0;fade(VOL,1800);}).catch(()=>{});}
+  function start(id){want=id;if(!on)return;const list=PL[id]||PL.metro;
+    if(theme===id&&au&&!au.paused){return;}
+    if(theme!==id){theme=id;idx=Math.floor(Math.random()*list.length);}
     try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
-    try{if(!silent){silent=document.createElement('audio');silent.src=silentWav();silent.loop=true;silent.setAttribute('playsinline','');silent.volume=.01;}
-      const p=silent.play();if(p&&p.catch)p.catch(()=>{});}catch(e){}
-    a=Snd.unlock();
-    if(a&&a.state==='suspended'){try{a.resume();}catch(e){}}
-    if(!ready){ready=true;if(on&&want)start(want);}
-  }
-  ['pointerdown','touchend','click','keydown'].forEach(ev=>window.addEventListener(ev,unlock,{passive:true,capture:true}));
-  document.addEventListener('visibilitychange',()=>{if(!a)return;try{if(document.hidden)a.suspend();else if(on)a.resume();}catch(e){}});
-  let want=null;
-  function impulse(){const len=Math.floor(a.sampleRate*2.6),buf=a.createBuffer(2,len,a.sampleRate);for(let c=0;c<2;c++){const d=buf.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6);}return buf;}
-  function voice(S,f,t,dur,vol,kind){
-    const o=a.createOscillator(),o2=a.createOscillator(),g=a.createGain(),lp=a.createBiquadFilter();
-    if(kind==='pad'){o.type='triangle';o2.type='sine';o.frequency.value=f;o2.frequency.value=f*1.004;lp.type='lowpass';lp.frequency.value=1100;
-      g.gain.setValueAtTime(0.0001,t);g.gain.linearRampToValueAtTime(vol,t+Math.min(1.6,dur*.35));g.gain.linearRampToValueAtTime(vol*.7,t+dur*.7);g.gain.exponentialRampToValueAtTime(.0001,t+dur+1.4);}
-    else{const T={rhodes:['sine','triangle',2,.9,2400],bell:['sine','sine',3.01,2.6,6000],steel:['triangle','sine',2.0,.55,3500],harp:['triangle','sine',2.0,1.1,4200],bass:['sine','sine',2,dur,500]}[kind];
-      o.type=T[0];o2.type=T[1];o.frequency.value=f;o2.frequency.value=f*T[2];lp.type='lowpass';lp.frequency.value=T[4];
-      g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.012);g.gain.exponentialRampToValueAtTime(.0001,t+T[3]);dur=T[3]-1.4;}
-    const g2=a.createGain();g2.gain.value=kind==='pad'?1:.35;o.connect(lp);o2.connect(g2);g2.connect(lp);lp.connect(g);g.connect(S.bus);if(S.th.echo&&kind!=='pad')g.connect(S.echoIn);g.connect(S.revIn);
-    o.start(t);o2.start(t);const end=t+dur+1.6;o.stop(end);o2.stop(end);}
-  function hat(S,t,vol){const n=Math.floor(a.sampleRate*.04),b=a.createBuffer(1,n,a.sampleRate),d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*(1-i/n);const s=a.createBufferSource();s.buffer=b;const f=a.createBiquadFilter();f.type='highpass';f.frequency.value=7000;const g=a.createGain();g.gain.value=vol;s.connect(f);f.connect(g);g.connect(S.bus);s.start(t);}
-  function sched(S){
-    const th=S.th,sd=60/th.bpm/2;
-    while(S.nextT<a.currentTime+.6){const t=S.nextT,s=S.step,ci=Math.floor(s/16)%4,ch=th.ch[ci];
-      if(s%16===0){const dur=sd*16;ch.forEach((n,i)=>voice(S,hz(n),t+i*.03,dur,.05,'pad'));voice(S,hz(th.bass[ci]),t,dur,.17,'bass');}
-      if(th.type==='rhodes'){if(s%2===0&&Math.random()<.55)voice(S,hz(pick(th.mel)),t+rnd(0,.03),1,.07,'rhodes');if(th.hat&&s%2===1)hat(S,t,.03);if(s%4===0)voice(S,hz(ch[0]-12),t,1,.09,'rhodes');}
-      else if(th.type==='bell'){if(s%4===0&&Math.random()<.7)voice(S,hz(pick(th.mel)),t,2,.05,'bell');if(s%8===4&&Math.random()<.4)voice(S,hz(ch[2]+12),t,2,.04,'bell');}
-      else if(th.type==='steel'){if(Math.random()<(s%2===0?.62:.38))voice(S,hz(Math.random()<.6?ch[Math.floor(Math.random()*4)]+12:pick(th.mel)),t,.6,.08,'steel');}
-      else{const seq=[0,1,2,3,2,1,2,3],n=ch[seq[s%8]]+(s%16<8?12:24);voice(S,hz(n),t,1.1,.06,'harp');if(s%16===8&&Math.random()<.6)voice(S,hz(pick(th.mel)),t,1.1,.045,'harp');}
-      S.nextT+=sd;S.step++;}
-  }
-  function start(id){
-    if(!a||!on)return;want=id;if(cur&&cur.id===id)return;stop();
-    const th=TH[id]||TH.metro;const S={id,th,step:0,nextT:a.currentTime+.15,nodes:[]};
-    S.bus=a.createGain();S.bus.gain.value=0;const comp=a.createDynamicsCompressor();comp.threshold.value=-18;comp.ratio.value=3;S.bus.connect(comp);const master=a.createGain();master.gain.value=.9;comp.connect(master);master.connect(a.destination);S.master=master;
-    const conv=a.createConvolver();conv.buffer=impulse();S.revIn=a.createGain();S.revIn.gain.value=.42;S.revIn.connect(conv);conv.connect(S.bus);
-    if(th.echo){S.echoIn=a.createGain();const dl=a.createDelay(1.2);dl.delayTime.value=60/th.bpm*.75;const fb=a.createGain();fb.gain.value=.45;S.echoIn.connect(dl);dl.connect(fb);fb.connect(dl);dl.connect(S.bus);dl.connect(S.revIn);S.echoIn.gain.value=.5;}
-    if(th.waves){const n=a.sampleRate*4,b=a.createBuffer(1,n,a.sampleRate),d=b.getChannelData(0);let l=0;for(let i=0;i<n;i++){l=l*.985+(Math.random()*2-1)*.06;d[i]=l;}const src=a.createBufferSource();src.buffer=b;src.loop=true;const lp=a.createBiquadFilter();lp.type='lowpass';lp.frequency.value=700;const g=a.createGain();g.gain.value=.5;const lfo=a.createOscillator(),lg=a.createGain();lfo.frequency.value=.11;lg.gain.value=.35;lfo.connect(lg);lg.connect(g.gain);src.connect(lp);lp.connect(g);g.connect(S.bus);src.start();lfo.start();S.nodes.push(src,lfo);}
-    S.bus.gain.linearRampToValueAtTime(.6,a.currentTime+2.5);S.timer=setInterval(()=>sched(S),120);sched(S);cur=S;}
-  function stop(){const S=cur;if(!S)return;cur=null;clearInterval(S.timer);try{S.bus.gain.cancelScheduledValues(a.currentTime);S.bus.gain.setValueAtTime(S.bus.gain.value,a.currentTime);S.bus.gain.linearRampToValueAtTime(0,a.currentTime+1.2);}catch(e){}
-    setTimeout(()=>{try{S.nodes.forEach(n=>n.stop());S.master.disconnect();}catch(e){}},1600);}
-  function setOn(v){on=v;try{window.localStorage.setItem('bm-music',v?'on':'off');}catch(e){}if(!v)stop();else if(want){a=Snd.unlock();start(want);}document.querySelectorAll('.bMusic').forEach(b=>{b.classList.toggle('muted',!v);b.title=v?'Silenciar música':'Activar música';});}
-  return{play(id){want=id;if(a&&ready)start(id);},get on(){return on;},setOn,toggle(){setOn(!on);},refresh(){document.querySelectorAll('.bMusic').forEach(b=>{b.classList.toggle('muted',!on);b.title=on?'Silenciar música':'Activar música';});}};
+    load(false);}
+  // desbloqueo (iPhone/Safari): el primer gesto del usuario inicia la reproducción
+  function gesture(){gestured=true;try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
+    if(on&&want&&(!au||au.paused)){start(want);}}
+  ['pointerdown','touchend','click','keydown'].forEach(ev=>window.addEventListener(ev,gesture,{passive:true,capture:true}));
+  document.addEventListener('visibilitychange',()=>{if(!au)return;if(document.hidden){au.pause();}else if(on&&want){au.play().catch(()=>{});fade(VOL,800);}});
+  function refresh(){document.querySelectorAll('.bMusic').forEach(b=>{b.classList.toggle('muted',!on);b.title=on?'Silenciar música':'Activar música';});}
+  function setOn(v){on=v;try{window.localStorage.setItem('bm-music',v?'on':'off');}catch(e){}if(!v){if(au)fade(0,400);}else if(want){start(want);}refresh();}
+  return{play(id){want=id;if(!on||!gestured)return;if(au&&!au.paused){if(theme===id)return;fade(0,300);setTimeout(()=>start(id),320);}else start(id);},get on(){return on;},setOn,toggle(){setOn(!on);},refresh};
 })();
 
 document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('.bMusic');if(b){Music.toggle();}});
